@@ -72,6 +72,57 @@ docker run -d -p 8080:8080 my-node-app
 
 Visit `http://localhost:8080`.
 
+During the labs things may go wrong. In such cases he's some commands to remember:
+
+### How to inspect a container
+
+First lets see all images running.
+
+```bash
+docker ps # Show all running containers
+
+CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS          PORTS                              NAMES
+2002001b6798   my-node-app   "docker-entrypoint.s…"   45 seconds ago   Up 45 seconds   3000/tcp, 0.0.0.0:8080->8080/tcp   vigorous_driscoll
+```
+
+Next let's get the logs:
+
+```bash
+docker logs vigorous_driscoll # Replace vigorous_driscoll with the name or container id
+
+> lab-2@1.0.0 start
+> node dist/index.js
+
+Server is running at http://localhost:8080
+```
+
+You can also _follow_ the logs in realtime using `-f` flag.
+
+Finally, you can also run `docker inspect vigorous_driscoll` to see full JSON meta data on the container. This can be useful to see (among other things) network settings.
+
+### How to get into a container
+
+It's also possible to access the command line of a container:
+
+```bash
+docker exec -it vigorous_driscoll /bin/bash # Replace vigorous_driscoll with the name or container id
+
+appuser@2002001b6798:/app$ ls -l # We're now inside container
+total 44
+drwxr-xr-x 1 appuser appuser  4096 Feb 26 08:54 dist
+drwxr-xr-x 1 appuser appuser  4096 Feb 26 09:28 node_modules
+-rw-r--r-- 1 appuser appuser 29939 Feb 26 09:28 package-lock.json
+-rw-r--r-- 1 appuser appuser   289 Feb 26 08:54 package.json
+```
+
+This can be especially useful if the container has issues such as permissions errors, missing files, etc.
+
+However this works if the container is already running. Often the container will fail to even run, in such cases use:
+
+```bash
+docker run -it [image_name] bash # Launch container and immediately attach to it.
+```
+
 ### Clean Up
 
 See all running images
