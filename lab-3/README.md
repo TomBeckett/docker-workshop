@@ -5,12 +5,10 @@
 ```bash
 .
 ├── docker-compose.yaml
-├── nodejs
-│   ├── Dockerfile
-│   ├── index.js
-│   └── package.json
-└── postgres
-    └── Dockerfile # See here for ENV VARS
+└── nodejs
+    ├── Dockerfile
+    ├── index.js
+    └── package.json
 ```
 
 Take a look around the project structure.
