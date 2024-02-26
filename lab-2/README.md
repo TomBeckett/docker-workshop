@@ -1,32 +1,40 @@
 # LAB 2: Improving the container
 
-Unfortunately the developers have re-written the application in TypeScript. This means the application needs to be **transpiled** before deployment.
-
-The steps developers use locally are:
+Let's start by making sure we have the latest image.
 
 ```bash
-npm i # Install dependencies
-npm run build # Build the application
-npm start # Run the application
+docker build -t my-node-app .
 ```
 
-You can run this locally and try it out!
+Next lets inspect the image size:
+
+```bash
+docker images
+```
+
+Heres the output:
+
+```bash
+REPOSITORY       TAG               IMAGE ID       CREATED         SIZE
+my-node-app      latest            96b87dc8e7d2   5 seconds ago   1.77GB
+```
 
 ## Issues
 
 There's a few things we don't like about this;
 
-- Our container is much larger than it needs to be.
-- We ship all `node_modules` including the developer / local only files.
+- Our container is much larger than it needs to be:
+  - We ship all `node_modules` including the developer / local only files.
+  - We're using full fat Linux rather than a Docker optimised image.
 - The runtime user is running as the default `root` user, we should use a non-root user!
 
-Lets solve these issues:
+Lets solve these issues.
 
 ## Making the container smaller
 
 ### Using slim images
 
-The first thing to tackle is the image size. [Docker Node](https://hub.docker.com/_/node/tags) comes in a variety of types and sizes.
+The first thing to tackle is the Linux size. [Docker Node](https://hub.docker.com/_/node/tags) come's in a variety of types and sizes.
 
 NodeJS recommend `-slim` for smaller images by removing unused libraries from the underlying OS.
 
@@ -44,11 +52,32 @@ FROM node:20-slim
 
 to shave 1.5GB off our image!
 
+Build your image.
+
+```bash
+docker build -t my-node-app .
+```
+
+Next lets inspect the image size again:
+
+```bash
+docker images
+```
+
+Heres the new output:
+
+```bash
+REPOSITORY       TAG               IMAGE ID       CREATED         SIZE
+my-node-app      latest            51a1fb2ed39c   4 seconds ago   517MB
+```
+
 > You can also try `-alpine` which further decreases the size. Note that alpine is extremely aggressive and so may cause issues if image is too cut down.
+
+For the curious, you can see the Docker Linus file [here](https://github.com/nodejs/docker-node/blob/main/20/alpine3.19/Dockerfile). It's Docker all the way down...
 
 ### Splitting the build and runtime
 
-As the developer dependencies are only required for the build step, we can also split the build and runtime steps into two separate images.
+As the developer dependencies are only required for the build step, we can also split the build and runtime steps into two separate build steps.
 
 The first image should run `npm i && npm run build` to create the JavaScript.
 
@@ -58,60 +87,141 @@ Replace your `Dockerfile` in `lab-2` with:
 
 ```dockerfile
 # --- Build stage ---
-# Start the first stage of the build process, using a Node.js 20 slim image as the base.
-# This stage is named "builder" and is used to compile/build the application.
 FROM node:20-slim AS builder
 
-# Create a new directory to hold the application code inside the image, and set it as the working directory.
+# Set the working directory in the container
 WORKDIR /app
 
-# Node.js image comes with a non-root user 'node' by default, but we do not switch to it yet as we need
-# permissions to install global packages and perform other root-level operations during the build.
-
-# Copy the package.json and package-lock.json (if available) to the container.
+# Copy package.json and package-lock.json to leverage Docker cache
 COPY package*.json ./
 
-# Install all dependencies defined in package.json.
+# Install dependencies
 RUN npm install
 
-# Copy the entire project into the container.
+# Copy the application code
 COPY . .
 
-# Run the build script defined in package.json to compile the application.
+# Build the application
 RUN npm run build
 
-# --- Production stage ---
-# Start the second stage of the build process, using the same Node.js 20 slim image.
-FROM node:20-slim
+# --- Runtime stage ---
+FROM node:20-slim AS runtime
 
-# Create and set the working directory inside the image.
+# Set the working directory in the container
 WORKDIR /app
 
-# Switch to the non-root user 'node' provided by the default Node.js image.
-# This enhances the security of the running container.
-USER node
+# Copy the built application from the builder stage
+COPY --from=builder ./app/dist ./dist
+COPY package*.json ./
 
-# Copy only the package.json and package-lock.json from the builder stage.
-COPY --from=builder /app/package*.json ./
+# Run install again but only for runtime dependencies.
+RUN npm install --production
 
-# Since we are now operating as a non-root user, we need to ensure that npm install
-# can run successfully without requiring root permissions.
-# The NODE_ENV environment variable could be set to production to skip devDependencies, but
-# --only=production is used explicitly here for clarity.
-RUN npm install --only=production
+# Open the port your app runs on
+EXPOSE 3000
 
-# Copy the compiled application from the builder stage to the production image.
-# The 'node' user has permission to write to its home directory, so no permission issues here.
-COPY --from=builder /app/dist ./dist
-
-# Inform Docker that the container listens on port 8080 at runtime.
-EXPOSE 8080
-
-# Use the non-root 'node' user to run the application.
+# Command to run your app
 CMD ["npm", "start"]
 ```
 
-This will create two docker images;
+This will create two docker step;
 
 - First (the builder) to build the node application i.e. turn TS into JS for runtime.
-- Second (the run time) to take the output from the previous image and run nodejs index.js.
+- Second (the run time) to take the output from the previous step and run nodejs index.js.
+
+### Improve security
+
+Current the runtime process is running as root within the container.
+
+We should create a new user and give it only permissions to the runtime folder.
+
+```bash
+# --- Build stage ---
+FROM node:20-slim AS builder
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy package.json and package-lock.json to leverage Docker cache
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the application code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# --- Runtime stage ---
+FROM node:20-slim AS runtime
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the built application from the builder stage
+COPY --from=builder ./app/dist ./dist
+COPY package*.json ./
+
+# Run install again but only for runtime dependencies.
+RUN npm install --production
+
+# Create a new user "appuser" with permissions over /app folder.
+RUN groupadd --gid 2000 appuser \
+    && useradd --uid 2000 --gid 2000 -m appuser \
+    && chown -R 2000:2000 /home/appuser \
+    && chown -R 2000:2000 /app
+
+# Change to the appuser
+USER appuser
+
+# Open the port your app runs on
+EXPOSE 3000
+
+# Command to run your app
+CMD ["npm", "start"]
+```
+
+Once more, lets build your image.
+
+```bash
+docker build -t my-node-app .
+```
+
+Next lets inspect the image size again:
+
+```bash
+docker images
+```
+
+Heres the new output:
+
+```bash
+REPOSITORY       TAG               IMAGE ID       CREATED          SIZE
+my-node-app      latest            93b8bb0c5a6d   20 seconds ago   330MB
+```
+
+### Run your new image
+
+Lets run the image and make sure all is still well.
+
+```bash
+docker run -d -p 8080:8080 my-node-app
+```
+
+Visit `http://localhost:8080`.
+
+### Clean Up
+
+See all running images
+
+```bash
+docker ps
+```
+
+Stop the image
+
+```bash
+docker stop <CONTAINER_ID_GOES_HERE> # Add your container image. For example 'docker stop 43acd01c7d1c'
+```
