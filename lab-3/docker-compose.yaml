@@ -1,0 +1,28 @@
+version: "3"
+services:
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: yourUsername
+      POSTGRES_PASSWORD: yourPassword
+      POSTGRES_DB: yourDatabaseName
+    # No the ports directive to prevent external access
+    networks:
+      - backend
+
+  app:
+    build:
+      context: ./nodejs
+    environment:
+      POSTGRES_USER: yourUsername
+      POSTGRES_PASSWORD: yourPassword
+      POSTGRES_DB: yourDatabaseName
+    ports:
+      - "8080:8080" # This service is still accessible from the host
+    depends_on:
+      - db
+    networks:
+      - backend
+
+networks:
+  backend:

@@ -118,7 +118,7 @@ COPY package*.json ./
 RUN npm install --production
 
 # Open the port your app runs on
-EXPOSE 3000
+EXPOSE 8080
 
 # Command to run your app
 CMD ["npm", "start"]
@@ -177,7 +177,7 @@ RUN groupadd --gid 2000 appuser \
 USER appuser
 
 # Open the port your app runs on
-EXPOSE 3000
+EXPOSE 8080
 
 # Command to run your app
 CMD ["npm", "start"]
